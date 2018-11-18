@@ -1,0 +1,12 @@
+version: '3'
+services:
+    clamav-autoscan:
+        image: jasperben/clamav-autoscan
+        container_name: clamav-autoscan
+        restart: always
+        tty: true
+        volumes:
+            - ./queue:/data
+            - ./clean:/clean
+            - ./infected:/infected
+
