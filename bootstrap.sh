@@ -26,9 +26,7 @@ BACKGROUND_TASKS+=($!)
     do
     	# Have to check file length is nonzero otherwise commands may be repeated
      	if [ -s "$FILE" ]; then
-            if clamdscan -vm "$FILE"; then
-                mv "$FILE" /clean/
-            else
+            if ! clamdscan -vm "$FILE"; then
                 mv "$FILE" /infected/
             fi
         fi
