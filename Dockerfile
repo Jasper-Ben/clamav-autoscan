@@ -4,7 +4,7 @@ LABEL maintainer "Jasper Orschulko <jasper@fancydomain.eu>"
 
 COPY update_db.sh bootstrap.sh ./
 
-ENV CLAMAV 0.101.1
+ENV CLAMAV 0.101.2
 
 RUN apk add --no-cache --virtual build-dependencies \
         alpine-sdk \
