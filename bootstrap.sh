@@ -1,45 +1,67 @@
 #!/bin/bash
 
-# Prepare log pipes
-mkdir -p /var/log/clamav
-touch /var/log/clamav/clamd.log /var/log/clamav/freshclam.log
-chown -R clamav:clamav /var/log/clamav/
-chown root:tty /dev/console
-chmod g+rw /dev/console
+mkdir -p /run/clamav /var/lib/clamav
+chown clamav:clamav -R /var/lib/clamav /run/clamav
+chmod 755 /var/lib/clamav
+chmod 750 /run/clamav
 
 BACKGROUND_TASKS=()
 
+echo "Running freshclam..."
+freshclam
+
 (
 while true; do
-    sleep 1m
-    freshclam
-    sleep 1h
+  sleep 12600
+  freshclam
 done
 ) &
 BACKGROUND_TASKS+=($!)
 
-clamd &
-BACKGROUND_TASKS+=($!)
-
 (
-    inotifywait --quiet --monitor --event close_write,moved_to --recursive --format '%w%f' /data | while read FILE
-    do
-    	# Have to check file length is nonzero otherwise commands may be repeated
-     	if [ -s "$FILE" ]; then
-            if ! clamdscan -vm "$FILE"; then
-                mv "$FILE" /infected/
-            fi
-        fi
-    done
+while true; do
+  sleep 10m
+  SANE_MIRRORS="$(dig +ignore +short rsync.sanesecurity.net)"
+  for sane_mirror in ${SANE_MIRRORS}; do
+    CE=
+    rsync -avp --chown=clamav:clamav --chmod=Du=rwx,Dgo=rx,Fu=rw,Fog=r --timeout=5 rsync://${sane_mirror}/sanesecurity/ \
+      --include 'blurl.ndb' \
+      --include 'junk.ndb' \
+      --include 'jurlbl.ndb' \
+      --include 'jurbla.ndb' \
+      --include 'phishtank.ndb' \
+      --include 'phish.ndb' \
+      --include 'spamimg.hdb' \
+      --include 'scam.ndb' \
+      --include 'rogue.hdb' \
+      --include 'sanesecurity.ftm' \
+      --include 'sigwhitelist.ign2' \
+      --exclude='*' /var/lib/clamav/
+    CE=$?
+    chmod 755 /var/lib/clamav/
+    if [ ${CE} -eq 0 ]; then
+      while [ ! -z "$(pidof freshclam)" ]; do
+        echo "Freshclam is active, waiting..."
+        sleep 5
+      done
+      echo RELOAD | nc clamav-autoscan 3310
+      break
+    fi
+  done
+  sleep 12h
+done
 ) &
 BACKGROUND_TASKS+=($!)
 
+nice -n10 clamd &
+BACKGROUND_TASKS+=($!)
+
 while true; do
-    for bg_task in ${BACKGROUND_TASKS[*]}; do
-        if ! kill -0 ${bg_task} 1>&2; then
-        echo "Worker ${bg_task} died, stopping container waiting for respawn..."
-        kill -TERM 1
-        fi
-        sleep 10
-    done
+  for bg_task in ${BACKGROUND_TASKS[*]}; do
+    if ! kill -0 ${bg_task} 1>&2; then
+      echo "Worker ${bg_task} died, stopping container waiting for respawn..."
+      kill -TERM 1
+    fi
+    sleep 10
+  done
 done

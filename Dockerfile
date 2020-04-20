@@ -1,64 +1,66 @@
-FROM alpine:3.9
+FROM debian:stretch-slim
 
 LABEL maintainer "Jasper Orschulko <jasper@fancydomain.eu>"
 
-COPY update_db.sh bootstrap.sh ./
-
 ENV CLAMAV 0.102.2
+ENV TINI v0.19.0
 
-RUN apk add --no-cache --virtual build-dependencies \
-        alpine-sdk \
-        ncurses-dev \
-        zlib-dev \
-        bzip2-dev \
-        pcre-dev \
-        linux-headers \
-        fts-dev \
+COPY bootstrap.sh ./
+
+RUN set -ex \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        zlib1g-dev \
+        libcurl4-openssl-dev \
+        libncurses5-dev \
+        libzip-dev \
+        libpcre2-dev \
         libxml2-dev \
-        libressl-dev \
-    && apk add --no-cache \
+        libssl-dev \
+        build-essential \
+        libjson-c-dev \
         curl \
         bash \
-        tini \
-        libxml2 \
-        libbz2 \
-        pcre \
-        fts \
-        libressl \
+        wget \
         tzdata \
-        inotify-tools \
+        dnsutils \
+        rsync \
+        netcat \
+    && rm -rf /var/lib/apt/lists/* \
     && wget -O - https://www.clamav.net/downloads/production/clamav-${CLAMAV}.tar.gz | tar xfvz - \
     && cd clamav-${CLAMAV} \
-    && LIBS=-lfts ./configure \
-        --prefix=/usr \
-        --libdir=/usr/lib \
-        --sysconfdir=/etc/clamav \
-        --mandir=/usr/share/man \
-        --infodir=/usr/share/info \
-        --without-iconv \
-        --disable-llvm \
-        --with-user=clamav \
-        --with-group=clamav \
-        --with-dbdir=/var/lib/clamav \
-        --enable-clamdtop \
-        --enable-bigstack \
-        --with-pcre \
-    && make -j$(nproc) \
+    && ./configure \
+    --prefix=/usr \
+    --libdir=/usr/lib \
+    --sysconfdir=/etc/clamav \
+    --mandir=/usr/share/man \
+    --infodir=/usr/share/info \
+    --disable-llvm \
+    --with-user=clamav \
+    --with-group=clamav \
+    --with-dbdir=/var/lib/clamav \
+    --enable-clamdtop \
+    --enable-bigstack \
+    --with-pcre \
+    && make -j "$(nproc)" \
     && make install \
     && make clean \
     && cd .. && rm -rf clamav-${CLAMAV} \
-    && apk del build-dependencies \
-    && addgroup -S clamav \
-    && adduser -S -D -h /var/lib/clamav -s /sbin/nologin -G clamav -g clamav clamav \
-    && adduser clamav tty \
-    && mkdir -p /run/clamav /data /infected /clean \
-    && chown -R clamav:clamav /run/clamav \
-    && chmod +x /update_db.sh bootstrap.sh \
-    && set -ex; /bin/bash /update_db.sh \
-    && chmod 750 /run/clamav 
-
-VOLUME /data /infected /clean
-
-COPY config/clamd.conf config/freshclam.conf /etc/clamav/
+    && apt-get -y --auto-remove purge build-essential \
+    && apt-get -y purge zlib1g-dev \
+    libncurses5-dev \
+    libzip-dev \
+    libpcre2-dev \
+    libxml2-dev \
+    libssl-dev \
+    libjson-c-dev \
+    && addgroup --system --gid 700 clamav \
+    && adduser --system --no-create-home --home /var/lib/clamav --uid 700 --gid 700 --disabled-login clamav \
+    && rm -rf /tmp/* /var/tmp/* \
+    && curl -sSfL https://github.com/krallin/tini/releases/download/"$TINI"/tini-amd64 -o /sbin/tini \
+    && chmod +x /sbin/tini /bootstrap.sh \
+    && curl -sSfL https://raw.githubusercontent.com/Cisco-Talos/clamav-devel/clamav-"$CLAMAV"/etc/clamd.conf.sample -o /etc/clamd.conf \
+    && curl -sSfL https://raw.githubusercontent.com/Cisco-Talos/clamav-devel/clamav-"$CLAMAV"/etc/freshclam.conf.sample -o /etc/freshclam.conf \
 
 CMD ["/sbin/tini", "-g", "--", "/bootstrap.sh"]
